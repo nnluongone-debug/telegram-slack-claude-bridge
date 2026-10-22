@@ -1,0 +1,4 @@
+{
+  "C0123ABCDEF": { "name": "api-main", "workdir": "$HOME/code/api" },
+  "C0456GHIJKL": { "name": "api-feature-x", "workdir": "$HOME/code/api-worktrees/feature-x" }
+}

@@ -1,0 +1,10 @@
+.env
+projects.json
+/bin/
+bridge.log
+dist/
+*.syso
+
+# local working notes, not part of the project
+/plans/
+/.claude/
