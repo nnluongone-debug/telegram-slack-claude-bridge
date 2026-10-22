@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// jsonPath puts dir inside a JSON string: forward slashes need no escaping,
+// and Windows accepts them.
+func jsonPath(dir string) string { return filepath.ToSlash(dir) }
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -22,7 +26,7 @@ func writeFile(t *testing.T, path, content string) {
 func TestLoadReadsDotEnvWithoutExportingIt(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	writeFile(t, filepath.Join(dir, "projects.json"), `{"C1": {"workdir": "`+dir+`"}}`)
+	writeFile(t, filepath.Join(dir, "projects.json"), `{"C1": {"workdir": "`+jsonPath(dir)+`"}}`)
 	writeFile(t, filepath.Join(dir, ".env"), "SLACK_BOT_TOKEN=xoxb-test\nSLACK_APP_TOKEN=xapp-test\nALLOWED_USER_IDS=U1, U2\n")
 	for _, k := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "ALLOWED_USER_IDS", "PROJECTS_FILE", "FLUSH_INTERVAL", "PTY_COLS"} {
 		t.Setenv(k, "")
@@ -44,7 +48,7 @@ func TestLoadReadsDotEnvWithoutExportingIt(t *testing.T) {
 func TestLoadRejectsUnsafeValues(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	writeFile(t, filepath.Join(dir, "projects.json"), `{"C1": {"workdir": "`+dir+`"}}`)
+	writeFile(t, filepath.Join(dir, "projects.json"), `{"C1": {"workdir": "`+jsonPath(dir)+`"}}`)
 	t.Setenv("SLACK_BOT_TOKEN", "xoxb-x")
 	t.Setenv("SLACK_APP_TOKEN", "xapp-x")
 
@@ -67,14 +71,14 @@ func TestLoadRejectsUnsafeValues(t *testing.T) {
 func TestLoadProjectsArgs(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "projects.json")
-	writeFile(t, path, `{"C1": {"workdir": "`+dir+`", "args": ["--model", "sonnet"]}}`)
+	writeFile(t, path, `{"C1": {"workdir": "`+jsonPath(dir)+`", "args": ["--model", "sonnet"]}}`)
 	p, _, err := LoadProjects(path)
 	if err != nil || len(p["C1"].Args) != 2 {
 		t.Fatalf("args not loaded: %+v %v", p, err)
 	}
-	writeFile(t, path, `{"C1": {"name": "bad-args", "workdir": "`+dir+`", "args": ["--resume=abc"]},
-		"C2": {"name": "typo", "workdir": "`+dir+`/some/missing"},
-		"C3": {"name": "good", "workdir": "`+dir+`"}}`)
+	writeFile(t, path, `{"C1": {"name": "bad-args", "workdir": "`+jsonPath(dir)+`", "args": ["--resume=abc"]},
+		"C2": {"name": "typo", "workdir": "`+jsonPath(dir)+`/some/missing"},
+		"C3": {"name": "good", "workdir": "`+jsonPath(dir)+`"}}`)
 	p, problems, err := LoadProjects(path)
 	if err != nil || len(p) != 1 || p["C3"].Name != "good" || len(problems) != 2 ||
 		!strings.HasPrefix(problems[0], "bad-args: flag --resume is not allowed") || !strings.HasPrefix(problems[1], "typo: folder not found") {
@@ -85,14 +89,14 @@ func TestLoadProjectsArgs(t *testing.T) {
 func TestProjectRegistryHotReload(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "projects.json")
-	writeFile(t, path, `{"C1": {"workdir": "`+dir+`"}}`)
+	writeFile(t, path, `{"C1": {"workdir": "`+jsonPath(dir)+`"}}`)
 	r, err := NewProjectRegistry(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	writeFile(t, path, `{"C1": {"workdir": "`+dir+`"}, "C2": {"name": "new", "workdir": "`+dir+`"}}`)
+	writeFile(t, path, `{"C1": {"workdir": "`+jsonPath(dir)+`"}, "C2": {"name": "new", "workdir": "`+jsonPath(dir)+`"}}`)
 	bump(t, path, 1)
 	r.reloadIfChanged(log)
 	if p, ok := r.Lookup("C2"); !ok || p.Name != "new" {
@@ -119,7 +123,7 @@ func bump(t *testing.T, path string, seconds int) {
 func TestTelegramOnlyConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	writeFile(t, filepath.Join(dir, "projects.json"), `{"-1001234567890": {"workdir": "`+dir+`"}}`)
+	writeFile(t, filepath.Join(dir, "projects.json"), `{"-1001234567890": {"workdir": "`+jsonPath(dir)+`"}}`)
 	for _, k := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "ALLOWED_USER_IDS"} {
 		t.Setenv(k, "")
 	}
@@ -147,7 +151,7 @@ func TestTelegramOnlyConfig(t *testing.T) {
 func TestDotEnvBeatsInheritedEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	writeFile(t, filepath.Join(dir, "projects.json"), `{"C1": {"workdir": "`+dir+`"}}`)
+	writeFile(t, filepath.Join(dir, "projects.json"), `{"C1": {"workdir": "`+jsonPath(dir)+`"}}`)
 	writeFile(t, filepath.Join(dir, ".env"), "SLACK_BOT_TOKEN=xoxb-from-file\nSLACK_APP_TOKEN=xapp-x\nALLOWED_USER_IDS=U1\n")
 	t.Setenv("SLACK_BOT_TOKEN", "xoxb-from-shell")
 	t.Setenv("TELEGRAM_BOT_TOKEN", "999:other-tools-bot") // unrelated name: must not enable Telegram
@@ -164,7 +168,7 @@ func TestDotEnvBeatsInheritedEnvironment(t *testing.T) {
 func TestIncompletePlatformIsTurnedOffNotFatal(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	writeFile(t, filepath.Join(dir, "projects.json"), `{"C1": {"workdir": "`+dir+`"}}`)
+	writeFile(t, filepath.Join(dir, "projects.json"), `{"C1": {"workdir": "`+jsonPath(dir)+`"}}`)
 	t.Setenv("SLACK_BOT_TOKEN", "xoxb-x")
 	t.Setenv("SLACK_APP_TOKEN", "xapp-x")
 	t.Setenv("ALLOWED_USER_IDS", "U1")
@@ -189,8 +193,8 @@ func TestMultiProjectChat(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "projects.json")
 	writeFile(t, path, `{
-		"C1": {"name": "web-app", "workdir": "`+dir+`"},
-		"C2": {"name": "api", "workdir": "`+dir+`"},
+		"C1": {"name": "web-app", "workdir": "`+jsonPath(dir)+`"},
+		"C2": {"name": "api", "workdir": "`+jsonPath(dir)+`"},
 		"-100all": {"name": "Team", "projects": ["*"]},
 		"-100some": {"projects": ["API", "missing"]}
 	}`)
@@ -227,9 +231,9 @@ func TestInlineChildProjects(t *testing.T) {
 	path := filepath.Join(dir, "projects.json")
 	writeFile(t, path, `{
 		"C0SLACK": {"name": "Team", "projects": [
-			{"name": "web-app", "workdir": "`+dir+`", "args": ["--model", "sonnet"]},
-			{"name": "api", "workdir": "`+dir+`/missing"},
-			{"workdir": "`+dir+`"}
+			{"name": "web-app", "workdir": "`+jsonPath(dir)+`", "args": ["--model", "sonnet"]},
+			{"name": "api", "workdir": "`+jsonPath(dir)+`/missing"},
+			{"workdir": "`+jsonPath(dir)+`"}
 		]},
 		"-100tg": {"name": "TG", "projects": ["*"]}
 	}`)
