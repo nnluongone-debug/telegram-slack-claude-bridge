@@ -23,12 +23,7 @@ func (b *Bridge) handleMessage(ctx context.Context, m *models.Message) {
 	if m.From == nil || m.From.IsBot {
 		return
 	}
-	raw := m.Text
-	if strings.TrimSpace(raw) == "" {
-		raw = m.Caption // text under a photo or document
-	}
-	hasFile := len(attachments(m)) > 0
-	if strings.TrimSpace(raw) == "" && !hasFile {
+	if strings.TrimSpace(messageText(m)) == "" && len(attachments(m)) == 0 {
 		return
 	}
 	user := strconv.FormatInt(m.From.ID, 10)
@@ -44,7 +39,17 @@ func (b *Bridge) handleMessage(ctx context.Context, m *models.Message) {
 	if !b.seen.FirstSeen(fmt.Sprintf("%d:%d", m.Chat.ID, m.ID)) {
 		return
 	}
+	if m.MediaGroupID != "" { // an album arrives as one message per photo
+		b.albums.add(m, func(msgs []*models.Message) { b.guarded(func() { b.dispatch(ctx, msgs) }) })
+		return
+	}
+	b.dispatch(ctx, []*models.Message{m})
+}
 
+// dispatch routes one authorised message (or the items of one album) to the
+// core: text and attachments come from all of them, the chat from the first.
+func (b *Bridge) dispatch(ctx context.Context, msgs []*models.Message) {
+	m := msgs[0]
 	conv := &topicConversation{b: b, chatID: m.Chat.ID}
 	if m.IsTopicMessage {
 		conv.threadID = m.MessageThreadID
@@ -58,9 +63,9 @@ func (b *Bridge) handleMessage(ctx context.Context, m *models.Message) {
 		conv.Reply("⚠️ Turn on **Topics** for this group (group settings → Edit → Topics): every session runs in its own topic.")
 		return
 	}
-	text := normalizeCommand(raw, b.username)
-	if hasFile && !strings.HasPrefix(text, "!") { // commands ignore attachments
-		text = chatcore.WithAttachments(text, b.saveAttachments(ctx, conv, project, m))
+	text := normalizeCommand(messageText(msgs...), b.username)
+	if files := attachments(msgs...); len(files) > 0 && !strings.HasPrefix(text, "!") { // commands ignore attachments
+		text = chatcore.WithAttachments(text, b.saveAttachments(ctx, conv, project, files))
 	}
 	if text == "" {
 		return

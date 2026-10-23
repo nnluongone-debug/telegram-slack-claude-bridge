@@ -29,6 +29,7 @@ type Bridge struct {
 	seen    *chatcore.RecentKeys
 	uploads *uploads.Store
 	http    *http.Client // downloads attachments from api.telegram.org
+	albums  *albumCollector
 
 	username  string // the bot's @username, to strip from /command@bot
 	running   atomic.Bool
@@ -41,6 +42,7 @@ func New(cfg *config.Config, core *chatcore.Core, store *uploads.Store, log *slo
 	b := &Bridge{
 		cfg: cfg, core: core, log: log, seen: chatcore.NewRecentKeys(chatcore.EventDedupeTTL),
 		uploads: store, http: &http.Client{}, // downloads are bounded by a context deadline
+		albums: newAlbumCollector(albumWait),
 	}
 	client, err := bot.New(cfg.TelegramBotToken,
 		bot.WithSkipGetMe(), // Run validates the token with a cancellable GetMe

@@ -318,7 +318,7 @@ On Slack you can also @mention the bot.
 - Files are saved under the bridge's support folder (see [Where files live](#where-files-live)), outside your project, in `uploads/<project>/`. Claude is allowed to read that folder; it cannot change it.
 - One file may be up to **20 MB** (Telegram's limit for bots). Larger files are reported with ❌ and skipped.
 - The file is never run or opened, only saved. Files are saved without the execute bit and, on macOS, with the same quarantine flag as a browser download. They are **not deleted automatically**: clean up `uploads/` when you like.
-- Telegram: photos and documents are supported; video, audio and voice messages are not. An album (several photos in one message) arrives as separate messages, so at the top level each photo starts its own session. Send one photo per message, or send them as replies inside a topic.
+- Telegram: photos and documents are supported; video, audio and voice messages are not. An album (several photos sent at once) is collected for about two seconds and handled as one message with all its files and the caption.
 - Slack: files sent together with @mention also work. The app must have the `files:read` scope.
 - A `!command` with a file attached runs the command; the file is ignored.
 
