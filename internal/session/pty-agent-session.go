@@ -42,6 +42,8 @@ type Options struct {
 	MirrorScreen bool
 	// Protected are the bridge's own files, which the agent may not touch.
 	Protected ProtectedPaths
+	// UploadsDir holds chat attachments; the agent may read it (--add-dir). "" = none.
+	UploadsDir string
 	// PlainCLI marks an agent that is not Claude Code's TUI (tests use a shell):
 	// input is written without waiting for or verifying Claude's prompt box.
 	PlainCLI bool
@@ -95,6 +97,9 @@ func startSession(s *Session, initialPrompt string, resume bool, extraArgs []str
 	args := slices.Concat(opts.Args, s.Project.Args, extraArgs)
 	if !opts.PlainCLI { // --settings is a Claude Code flag
 		args = append(args, protectSettingsArgs(opts.Protected)...)
+	}
+	if opts.UploadsDir != "" {
+		args = append(args, "--add-dir", opts.UploadsDir)
 	}
 	if resume {
 		args = append(args, "--resume", s.ID)

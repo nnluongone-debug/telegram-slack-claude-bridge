@@ -41,6 +41,7 @@ You start a Claude Code session from a chat message, follow its answers in a thr
 - **Channel = project.** Each Slack channel or Telegram group maps to a working directory. One chat can also host several projects and ask *Which project?* with buttons.
 - **Thread = session.** A top-level message starts a `claude` process in a pseudo-terminal. Replies in the thread (Slack) or topic (Telegram) are typed into it.
 - **Readable answers.** Claude's replies are read from its session transcript and posted as formatted messages. Tables become native Slack tables, and tool calls show as compact lines (`🔧 Bash git status`).
+- **Send files.** A photo, screenshot, PDF or any document sent with a message is downloaded and handed to Claude, which reads it with its own tools.
 - **Approve from your phone.** Claude's permission prompts become **Approve / Reject** buttons, and multiple-choice questions become one button per option.
 - **Resume anywhere.** The session ID in the chat is Claude's own session ID. `!resume` continues it after a restart, and `claude --resume <id>` continues it on your laptop.
 - **Parallel sessions without conflicts.** When a second session starts in a git repository that already has a live session, it gets its own git worktree automatically.
@@ -80,13 +81,14 @@ What the bridge enforces:
 | Narrow working folders | `workdir` may not be `/`, a drive root, your home folder or one of its parents. Only `$HOME` and `~` are expanded, so `projects.json` cannot pull other environment variables into paths. |
 | No link previews | Messages are posted with link unfurling off, so a URL the agent prints is never fetched by Slack or Telegram. |
 | No inbound ports | Socket Mode and long polling only. |
+| Files are saved, never run | Attachments are downloaded only from allowlisted users, capped at 20 MB, saved without the execute bit (quarantined on macOS) in a folder the agent can read but not edit. Claude reads them as untrusted content, under the usual permission prompts. |
 
 What **you** must do:
 
 - **Turn on two-factor authentication** for the Slack and Telegram accounts on the allowlist. For Telegram, set a cloud password: SMS codes alone are a common way to lose an account.
 - **Use private channels or groups that contain only you** (or people you fully trust). The allowlist controls who can *send commands*, not who can *read*. Everyone in the chat sees Claude's answers, which can include file contents and secrets.
 - **Keep Claude's permission prompts on.** Approve actions one by one, or use `acceptEdits`. Avoid broad auto-approval for shell commands: the deny rules above cover Claude's file tools, not what a shell command does.
-- Be careful with what the agent reads. Web pages, issues and files from other people can contain prompt injection.
+- Be careful with what the agent reads. Web pages, issues and files from other people can contain prompt injection. That includes files you forward into the chat: a PDF or image can carry text that tells Claude to run something. The permission prompts are your guard.
 - In @BotFather, set `/setjoingroups` to *Disable* after adding your bot to its groups, so nobody else can add it to theirs.
 
 To report a vulnerability, please open a private security advisory on GitHub rather than a public issue.
@@ -130,7 +132,7 @@ make release        # macOS only: all release archives in dist/release
 ## Set up Slack
 
 1. **Create the app.** Go to <https://api.slack.com/apps> → **Create New App** → **From an app manifest**, choose your workspace, and paste the contents of [`slack-app-manifest.yaml`](slack-app-manifest.yaml). It requests:
-   - Bot scopes `app_mentions:read`, `channels:history`, `groups:history` and `chat:write`.
+   - Bot scopes `app_mentions:read`, `channels:history`, `groups:history`, `chat:write` and `files:read` (to download files you send).
    - Socket Mode and interactivity (for the buttons).
 2. **Create the app-level token.** Go to *Basic Information* → *App-Level Tokens* → **Generate Token and Scopes**, and add the scope `connections:write`. The token (`xapp-…`) is your `SLACK_APP_TOKEN`.
 3. **Install the app.** Go to *Install App* → **Install to Workspace**. The *Bot User OAuth Token* (`xoxb-…`) is your `SLACK_BOT_TOKEN`.
@@ -307,8 +309,18 @@ Windows support uses ConPTY and needs Windows 10 1809 or newer. Each agent runs 
 | Project chat (top level) | `fix the failing auth tests` | Starts a new session in a thread or topic, with this message as the first prompt. |
 | Multi-project chat | `api: fix the failing tests` | Starts the session in project `api` without asking. |
 | Session thread or topic | any text | Typed into that session and submitted. Multi-line text is sent as a paste. |
+| Anywhere a message works | a photo or file, with or without a caption | The file is downloaded and its path is added to the message, so Claude can read it. |
 
 On Slack you can also @mention the bot.
+
+### Sending files
+
+- Files are saved under the bridge's support folder (see [Where files live](#where-files-live)), outside your project, in `uploads/<project>/`. Claude is allowed to read that folder; it cannot change it.
+- One file may be up to **20 MB** (Telegram's limit for bots). Larger files are reported with ❌ and skipped.
+- The file is never run or opened, only saved. Files are saved without the execute bit and, on macOS, with the same quarantine flag as a browser download. They are **not deleted automatically**: clean up `uploads/` when you like.
+- Telegram: photos and documents are supported; video, audio and voice messages are not. An album (several photos in one message) arrives as separate messages, so at the top level each photo starts its own session. Send one photo per message, or send them as replies inside a topic.
+- Slack: files sent together with @mention also work. The app must have the `files:read` scope.
+- A `!command` with a file attached runs the command; the file is ignored.
 
 ### Commands
 
@@ -341,6 +353,7 @@ On Telegram, every command also works with `/` (`/status`, `/model sonnet`), and
 |---|---|---|
 | `.env`, `projects.json` | `~/Library/Application Support/ClaudeBridge/` | The working directory |
 | Thread → session records, lock file | `~/Library/Application Support/ClaudeBridge/` | macOS: same as the app · Linux: `~/.config/ClaudeBridge/` · Windows: `%AppData%\ClaudeBridge\` |
+| Files sent in chats | `~/Library/Application Support/ClaudeBridge/uploads/<project>/` | same folder as the records, `uploads/<project>/` |
 | Log | `~/Library/Logs/ClaudeBridge/bridge.log` | Standard output |
 | Claude transcripts | `~/.claude/projects/<folder>/<session-id>.jsonl` (or `$CLAUDE_CONFIG_DIR`) | same |
 
@@ -398,7 +411,7 @@ Contributions are welcome. Please run `make lint test` before opening a pull req
 - Don't type `/model` into a session: Claude Code saves it as your default model for **all** sessions. Use `!model` instead.
 - Prompt detection relies on Claude Code's current interface text ("1. Yes", "Esc to cancel"). Re-run `make smoke` after upgrades.
 - Restarting the bridge stops running sessions. Continue them with `!resume` in their threads.
-- Files and images sent in the chat are not passed to Claude yet. Only text is.
+- Telegram video, audio and voice messages are not passed to Claude. Photos and documents are (see [Sending files](#sending-files)).
 
 ## License
 

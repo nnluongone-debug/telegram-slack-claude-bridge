@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+
+	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/chatcore"
 )
 
 const (
@@ -18,7 +20,15 @@ const (
 )
 
 func (b *Bridge) handleMessage(ctx context.Context, m *models.Message) {
-	if m.From == nil || m.From.IsBot || strings.TrimSpace(m.Text) == "" {
+	if m.From == nil || m.From.IsBot {
+		return
+	}
+	raw := m.Text
+	if strings.TrimSpace(raw) == "" {
+		raw = m.Caption // text under a photo or document
+	}
+	hasFile := len(attachments(m)) > 0
+	if strings.TrimSpace(raw) == "" && !hasFile {
 		return
 	}
 	user := strconv.FormatInt(m.From.ID, 10)
@@ -48,7 +58,13 @@ func (b *Bridge) handleMessage(ctx context.Context, m *models.Message) {
 		conv.Reply("⚠️ Turn on **Topics** for this group (group settings → Edit → Topics): every session runs in its own topic.")
 		return
 	}
-	text := normalizeCommand(m.Text, b.username)
+	text := normalizeCommand(raw, b.username)
+	if hasFile && !strings.HasPrefix(text, "!") { // commands ignore attachments
+		text = chatcore.WithAttachments(text, b.saveAttachments(ctx, conv, project, m))
+	}
+	if text == "" {
+		return
+	}
 	if project.IsMulti() {
 		b.core.HandleMultiMessage(ctx, conv, project, b.cfg.Projects.Members(project), text, b.askProject(m.Chat.ID))
 		return

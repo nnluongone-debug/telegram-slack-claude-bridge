@@ -15,6 +15,7 @@ import (
 
 	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/chatcore"
 	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/config"
+	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/uploads"
 )
 
 // Bridge wires Slack events to the session manager.
@@ -24,6 +25,7 @@ type Bridge struct {
 	cfg       *config.Config
 	core      *chatcore.Core
 	poster    *messagePoster
+	uploads   *uploads.Store
 	log       *slog.Logger
 	botUserID string
 
@@ -46,17 +48,18 @@ func (b *Bridge) Err() string {
 	return ""
 }
 
-// New builds a Bridge; call Run to connect.
-func New(cfg *config.Config, core *chatcore.Core, log *slog.Logger) *Bridge {
+// New builds a Bridge; call Run to connect. store receives files sent in chats.
+func New(cfg *config.Config, core *chatcore.Core, store *uploads.Store, log *slog.Logger) *Bridge {
 	api := slack.New(cfg.SlackBotToken, slack.OptionAppLevelToken(cfg.SlackAppToken), slack.OptionDebug(cfg.Debug))
 	return &Bridge{
-		api:    api,
-		socket: socketmode.New(api, socketmode.OptionDebug(cfg.Debug)),
-		cfg:    cfg,
-		core:   core,
-		poster: &messagePoster{api: api, log: log},
-		log:    log,
-		seen:   chatcore.NewRecentKeys(chatcore.EventDedupeTTL),
+		api:     api,
+		socket:  socketmode.New(api, socketmode.OptionDebug(cfg.Debug)),
+		cfg:     cfg,
+		core:    core,
+		poster:  &messagePoster{api: api, log: log},
+		uploads: store,
+		log:     log,
+		seen:    chatcore.NewRecentKeys(chatcore.EventDedupeTTL),
 	}
 }
 
@@ -128,20 +131,27 @@ func (b *Bridge) handleEventsAPI(ctx context.Context, e slackevents.EventsAPIEve
 
 	switch ev := e.InnerEvent.Data.(type) {
 	case *slackevents.MessageEvent:
-		// Skip bot posts, edits/joins/etc., and mentions (those arrive again as app_mention).
-		if ev.BotID != "" || ev.SubType != "" || ev.User == "" || ev.User == b.botUserID ||
-			strings.Contains(ev.Text, b.mentionTag()) {
+		// Skip bot posts, edits/joins/etc. (file uploads excepted), and mentions
+		// (those arrive again as app_mention). A mention with files is kept
+		// here in case app_mention omits them; the channel:ts dedupe keeps it single.
+		isUpload := ev.SubType == "file_share"
+		if ev.BotID != "" || (ev.SubType != "" && !isUpload) || ev.User == "" || ev.User == b.botUserID ||
+			(!isUpload && strings.Contains(ev.Text, b.mentionTag())) {
 			return
 		}
+		var files []slack.File
+		if ev.Message != nil { // the unmarshaller puts a file_share's files here
+			files = ev.Message.Files
+		}
 		b.handleUserMessage(ctx, incomingMessage{
-			channel: ev.Channel, user: ev.User, text: ev.Text, ts: ev.TimeStamp, threadTS: ev.ThreadTimeStamp,
+			channel: ev.Channel, user: ev.User, text: ev.Text, ts: ev.TimeStamp, threadTS: ev.ThreadTimeStamp, files: files,
 		})
 	case *slackevents.AppMentionEvent:
 		if ev.BotID != "" {
 			return
 		}
 		b.handleUserMessage(ctx, incomingMessage{
-			channel: ev.Channel, user: ev.User, text: ev.Text, ts: ev.TimeStamp, threadTS: ev.ThreadTimeStamp, mentioned: true,
+			channel: ev.Channel, user: ev.User, text: ev.Text, ts: ev.TimeStamp, threadTS: ev.ThreadTimeStamp, mentioned: true, files: ev.Files,
 		})
 	}
 }

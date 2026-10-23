@@ -5,11 +5,16 @@ import (
 	"html"
 	"regexp"
 	"strings"
+
+	"github.com/slack-go/slack"
+
+	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/chatcore"
 )
 
 type incomingMessage struct {
 	channel, user, text, ts, threadTS string
 	mentioned                         bool
+	files                             []slack.File
 }
 
 // isTopLevel is true for channel messages (Slack sets thread_ts == ts on thread parents).
@@ -48,6 +53,12 @@ func (b *Bridge) handleUserMessage(ctx context.Context, m incomingMessage) {
 		return
 	}
 	text := normalizeSlackText(strings.ReplaceAll(m.text, b.mentionTag(), ""))
+	if len(m.files) > 0 && !strings.HasPrefix(text, "!") { // commands ignore attachments
+		text = chatcore.WithAttachments(text, b.saveAttachments(ctx, conv, project, m.files))
+	}
+	if text == "" {
+		return
+	}
 	if project.IsMulti() {
 		b.core.HandleMultiMessage(ctx, conv, project, b.cfg.Projects.Members(project), text, b.askProject(conv))
 		return

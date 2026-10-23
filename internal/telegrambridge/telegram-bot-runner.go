@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/chatcore"
 	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/config"
+	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/uploads"
 )
 
 // errorGrace: after a polling error the bridge counts as disconnected for this long.
@@ -19,12 +21,14 @@ const errorGrace = 30 * time.Second
 
 // Bridge serves Telegram updates by long polling (no public URL needed).
 type Bridge struct {
-	bot    *bot.Bot
-	cfg    *config.Config
-	core   *chatcore.Core
-	poster *poster
-	log    *slog.Logger
-	seen   *chatcore.RecentKeys
+	bot     *bot.Bot
+	cfg     *config.Config
+	core    *chatcore.Core
+	poster  *poster
+	log     *slog.Logger
+	seen    *chatcore.RecentKeys
+	uploads *uploads.Store
+	http    *http.Client // downloads attachments from api.telegram.org
 
 	username  string // the bot's @username, to strip from /command@bot
 	running   atomic.Bool
@@ -32,9 +36,12 @@ type Bridge struct {
 	lastErr   atomic.Pointer[string]
 }
 
-// New creates the Telegram bridge; Run connects it.
-func New(cfg *config.Config, core *chatcore.Core, log *slog.Logger) (*Bridge, error) {
-	b := &Bridge{cfg: cfg, core: core, log: log, seen: chatcore.NewRecentKeys(chatcore.EventDedupeTTL)}
+// New creates the Telegram bridge; Run connects it. store receives files sent in chats.
+func New(cfg *config.Config, core *chatcore.Core, store *uploads.Store, log *slog.Logger) (*Bridge, error) {
+	b := &Bridge{
+		cfg: cfg, core: core, log: log, seen: chatcore.NewRecentKeys(chatcore.EventDedupeTTL),
+		uploads: store, http: &http.Client{}, // downloads are bounded by a context deadline
+	}
 	client, err := bot.New(cfg.TelegramBotToken,
 		bot.WithSkipGetMe(), // Run validates the token with a cancellable GetMe
 		bot.WithDefaultHandler(b.onUpdate),
@@ -84,16 +91,23 @@ func (b *Bridge) Err() string {
 	return ""
 }
 
+// onUpdate runs on the library's single worker, so messages (which may
+// download attachments) are handled in their own goroutine to keep button
+// clicks responsive.
 func (b *Bridge) onUpdate(ctx context.Context, _ *bot.Bot, update *models.Update) {
+	switch {
+	case update.Message != nil:
+		go b.guarded(func() { b.handleMessage(ctx, update.Message) })
+	case update.CallbackQuery != nil:
+		b.guarded(func() { b.handleCallback(ctx, update.CallbackQuery) })
+	}
+}
+
+func (b *Bridge) guarded(fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
 			b.log.Error("recovered from panic in telegram handler", "panic", r)
 		}
 	}()
-	switch {
-	case update.Message != nil:
-		b.handleMessage(ctx, update.Message)
-	case update.CallbackQuery != nil:
-		b.handleCallback(ctx, update.CallbackQuery)
-	}
+	fn()
 }

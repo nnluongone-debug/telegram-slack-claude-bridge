@@ -208,7 +208,8 @@ func TestConsecutiveMenusEachGetFreshButtons(t *testing.T) {
 func TestResumePassesSessionIDsToClaude(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no real transcripts
 	m := NewManager(Options{Bin: "/bin/sh", Args: []string{"-c", `echo "args: $*"; sleep 2`, "sh"},
-		Cols: 80, Rows: 24, FlushInterval: 50 * time.Millisecond, MirrorScreen: true, PlainCLI: true}, 3)
+		Cols: 80, Rows: 24, FlushInterval: 50 * time.Millisecond, MirrorScreen: true, PlainCLI: true,
+		UploadsDir: "/u"}, 3) // chat attachments folder; short so the echoed args fit one 80-column line
 	project := config.Project{Name: "tmp", WorkDir: t.TempDir()}
 
 	newSink := newRecordingSink()
@@ -231,7 +232,7 @@ func TestResumePassesSessionIDsToClaude(t *testing.T) {
 	for _, c := range []struct {
 		sink *recordingSink
 		want string
-	}{{newSink, "args: --session-id " + fresh.ID}, {resumeSink, "args: --model sonnet --resume " + strings.ToLower(oldID)}} {
+	}{{newSink, "args: --add-dir /u --session-id " + fresh.ID}, {resumeSink, "args: --model sonnet --add-dir /u --resume " + strings.ToLower(oldID)}} {
 		select {
 		case <-c.sink.exited:
 		case <-time.After(5 * time.Second):

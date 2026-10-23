@@ -12,6 +12,7 @@ import (
 	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/session"
 	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/slackbridge"
 	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/telegrambridge"
+	"github.com/nnluongone-debug/telegram-slack-claude-bridge/internal/uploads"
 )
 
 const projectsPollInterval = 3 * time.Second
@@ -55,6 +56,14 @@ func Run(ctx context.Context, logger *slog.Logger, ready func(*Runtime)) error {
 		logger.Warn("platform disabled", "problem", p)
 	}
 
+	supportDir, err := SupportDir()
+	if err != nil {
+		return err
+	}
+	store, err := uploads.NewStore(filepath.Join(supportDir, "uploads"))
+	if err != nil {
+		return err
+	}
 	sessions := session.NewManager(session.Options{
 		Bin:           cfg.ClaudeBin,
 		Args:          cfg.ClaudeArgs,
@@ -63,15 +72,16 @@ func Run(ctx context.Context, logger *slog.Logger, ready func(*Runtime)) error {
 		FlushInterval: cfg.FlushInterval,
 		MirrorScreen:  cfg.MirrorScreen,
 		Protected:     protectedPaths(cfg),
+		UploadsDir:    store.Dir,
 	}, cfg.MaxSessions)
 	core := chatcore.New(sessions, chatcore.OpenSessionDirectory(directoryPath()), logger)
 
 	var platforms []Platform
 	if cfg.SlackEnabled() {
-		platforms = append(platforms, slackbridge.New(cfg, core, logger))
+		platforms = append(platforms, slackbridge.New(cfg, core, store, logger))
 	}
 	if cfg.TelegramEnabled() {
-		tg, err := telegrambridge.New(cfg, core, logger)
+		tg, err := telegrambridge.New(cfg, core, store, logger)
 		if err != nil {
 			return err
 		}
