@@ -3,6 +3,7 @@ package transcript
 import (
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -35,7 +36,23 @@ func SessionBelongsTo(sessionID, workDir string) bool {
 		return false
 	}
 	dir, project := filepath.Base(filepath.Dir(path)), projectDirName(workDir)
-	return dir == project || strings.HasPrefix(dir, project+worktreeDirMarker)
+	return sameFolder(dir, project) || hasFolderPrefix(dir, project+worktreeDirMarker)
+}
+
+// sameFolder compares transcript folder names. macOS and Windows file systems
+// ignore case, so a folder first created from a session in ".../BI" also
+// receives the transcripts of sessions started in ".../bi".
+func sameFolder(a, b string) bool {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// hasFolderPrefix is sameFolder for the start of dir. Folder names are
+// ASCII (see nonAlnumRe), so byte slicing is safe.
+func hasFolderPrefix(dir, prefix string) bool {
+	return len(dir) >= len(prefix) && sameFolder(dir[:len(prefix)], prefix)
 }
 
 // WorktreeName returns the Claude worktree sessionID ran in under workDir, or "".
@@ -44,9 +61,9 @@ func WorktreeName(sessionID, workDir string) string {
 	if !ok {
 		return ""
 	}
-	name, _ := strings.CutPrefix(filepath.Base(filepath.Dir(path)), projectDirName(workDir)+worktreeDirMarker)
-	if name == filepath.Base(filepath.Dir(path)) {
+	dir, prefix := filepath.Base(filepath.Dir(path)), projectDirName(workDir)+worktreeDirMarker
+	if !hasFolderPrefix(dir, prefix) {
 		return ""
 	}
-	return name
+	return dir[len(prefix):]
 }

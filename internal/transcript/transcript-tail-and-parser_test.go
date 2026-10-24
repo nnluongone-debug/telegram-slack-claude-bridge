@@ -3,6 +3,8 @@ package transcript
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -85,5 +87,25 @@ func TestSessionBelongsTo(t *testing.T) {
 	}
 	if got := projectDirName("/Users/a/Code/my_app/file-management"); got != "-Users-a-Code-my-app-file-management" {
 		t.Fatalf("encoding: %q", got)
+	}
+
+	// A folder created from ".../BI" also holds sessions started in ".../bi"
+	// on case-insensitive file systems (macOS, Windows).
+	upper := filepath.Join(cfg, "projects", strings.ToUpper(projectDirName(workDir)))
+	if err := os.MkdirAll(upper, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	appendTo(t, filepath.Join(upper, "sess-upper.jsonl"), "{}\n")
+	wtree := filepath.Join(cfg, "projects", strings.ToUpper(projectDirName(workDir))+worktreeDirMarker+"bridge-1")
+	if err := os.MkdirAll(wtree, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	appendTo(t, filepath.Join(wtree, "sess-wt.jsonl"), "{}\n")
+	insensitive := runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+	if SessionBelongsTo("sess-upper", workDir) != insensitive {
+		t.Fatalf("case-insensitive match should be %v on %s", insensitive, runtime.GOOS)
+	}
+	if got, want := WorktreeName("sess-wt", workDir), "bridge-1"; insensitive && got != want {
+		t.Fatalf("worktree name %q, want %q", got, want)
 	}
 }

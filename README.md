@@ -367,6 +367,7 @@ On Telegram, every command also works with `/` (`/status`, `/model sonnet`), and
 | `This channel is not mapped to a project` | Add the channel ID to `projects.json`. |
 | A project is missing from the menu | Look for ⚠️ in the menu bar or `skipped` in the log: usually a wrong folder, a folder that is too broad (home or `/`), or a forbidden flag in `args`. |
 | The agent says a `.claude/settings` file is denied | Sessions started by the bridge cannot edit Claude Code's configuration. Edit it yourself on the computer. |
+| `!resume`: "that session belongs to another project" | The session's transcript is in a different `~/.claude/projects/` folder than the project's `workdir` resolves to. Check that `workdir` in `projects.json` points at the folder the session ran in (worktrees under it are fine). |
 | No buttons for a permission prompt | Claude Code's prompt text may have changed. Run `make smoke` and open an issue. Meanwhile, use `!screen` and answer by typing `1`, or use `!esc`. |
 | Telegram: "Turn on Topics" | Enable Topics in the group settings. Every session needs its own topic. |
 | Windows: `… is a .cmd script` | Install the native `claude.exe` and point `CLAUDE_BIN` at it. |
